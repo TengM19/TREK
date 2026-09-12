@@ -8,11 +8,13 @@ import { runSeeds } from '../../../server/src/db/seeds';
 import type Database from 'better-sqlite3';
 import { consumeEphemeralTokenWithMeta } from '../../../server/src/nest/auth/ephemeral-tokens';
 import { cloudflareJoin, cloudflareLeave, cloudflareLeaveAll } from '../../../server/src/cloudflare-realtime';
+import { ReminderJobsService } from '../../../server/src/nest/notifications/reminder-jobs.service';
 
 export class TrekDatabase extends DurableObject {
   private readonly database = new DurableSqlite(this.ctx.storage);
   private readonly socketUsers = new Map<any, { id: number }>();
   private handler?: ReturnType<typeof httpServerHandler>;
+  private application?: { get<T>(token: new (...args: any[]) => T, options?: { strict?: boolean }): T };
 
   constructor(ctx: DurableObjectState, env: unknown) {
     super(ctx, env);
@@ -26,7 +28,7 @@ export class TrekDatabase extends DurableObject {
           this.database.prepare('INSERT OR IGNORE INTO app_settings(key, value) VALUES (?, ?)').run(key, process.env.TREK_INITIAL_REGISTRATION === 'true' ? 'true' : 'false');
         }
         const { buildApp, getHttpServer } = await import('../../../server/src/bootstrap').catch(error => { console.error(error.stack); throw error; });
-        await buildApp();
+        this.application = await buildApp();
         this.handler = httpServerHandler(getHttpServer());
       });
     });
@@ -41,7 +43,15 @@ export class TrekDatabase extends DurableObject {
         const idempotency = this.database.prepare('DELETE FROM idempotency_keys WHERE created_at < ?').run(cutoff).changes;
         const challenges = this.database.prepare('DELETE FROM webauthn_challenges WHERE expires_at < ?').run(Date.now()).changes;
         const invites = this.database.prepare("DELETE FROM invite_tokens WHERE expires_at IS NOT NULL AND expires_at < datetime('now')").run().changes;
-        return Response.json({ ok: true, idempotency, challenges, invites });
+        // The native reminder service already owns preference checks, recipient
+        // resolution and the in-app WebSocket event contract. Invoke it from
+        // the scheduler instead of duplicating those rules in the adapter.
+        const reminder = this.application?.get(ReminderJobsService, { strict: false });
+        if (request.headers.get('x-trek-cron-kind') === 'reminders' && reminder) {
+          await reminder.tripTick();
+          await reminder.todoTick();
+        }
+        return Response.json({ ok: true, idempotency, challenges, invites, reminders: request.headers.get('x-trek-cron-kind') === 'reminders' });
       }
       if (!this.handler) throw new Error('TREK application failed to initialize');
       return this.handler.fetch(request, this.env, this.ctx);
@@ -137,14 +147,15 @@ export default {
     }
     return env.ASSETS.fetch(request);
   },
-  async scheduled(_event: ScheduledEvent, env: { TREK: DurableObjectNamespace }) {
+  async scheduled(event: ScheduledEvent, env: { TREK: DurableObjectNamespace }) {
+    const reminders = event.cron === '0 9 * * *';
     const response = await env.TREK.get(env.TREK.idFromName('trek-instance')).fetch(
       new Request('https://internal/__cloudflare/cron', {
         method: 'POST',
-        headers: { 'x-trek-cron': 'cloudflare-scheduler-v1' },
+        headers: { 'x-trek-cron': 'cloudflare-scheduler-v1', ...(reminders ? { 'x-trek-cron-kind': 'reminders' } : {}) },
       }),
     );
     if (!response.ok) throw new Error(`Cloudflare scheduled cleanup failed (${response.status})`);
-    console.log('[cloudflare-cron] cleanup', await response.text());
+    console.log(`[cloudflare-cron] ${reminders ? 'reminders' : 'cleanup'}`, await response.text());
   },
 };
