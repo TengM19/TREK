@@ -59,7 +59,8 @@ export class TrekDatabase extends DurableObject {
     const pair = new Pair();
     const socket = pair[1] as any;
     socket.trekSocketId = Math.floor(Math.random() * 2147483647);
-    socket.accept();
+    const accept = (this.ctx as any).acceptWebSocket;
+    if (typeof accept === 'function') accept.call(this.ctx, socket); else socket.accept();
     socket.send(JSON.stringify({ type: 'welcome', socketId: socket.trekSocketId }));
     socket.addEventListener('message', (event: MessageEvent) => {
       try {

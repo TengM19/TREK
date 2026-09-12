@@ -23,7 +23,7 @@ Tests run against workerd through Miniflare, not mocked database/auth services:
 
 Attachments, PDF import, plugin execution and realtime collaboration are unavailable. Upload writes fail explicitly; multipart uploads, backup/restore and storage reconfiguration return 501. Plugins are disabled with `TREK_PLUGINS_ENABLED=false`; child-process isolation is not replaced with in-process execution. Cloudflare Cron now runs the durable cleanup task (expired idempotency keys, WebAuthn challenges and registration invites); the remaining upstream jobs still need individual migration. Rotating log files are replaced by console logging. Unsupported admin secret rotation fails with an instruction to rotate the Cloudflare secret.
 
-Other upstream features have not been accepted on this profile. OSM and TREK Places map requests are available; Google Places, email, other third-party integrations, MCP, import/export, offline conflict reconciliation and load limits need separate verification. This preview is not a claim that all upstream features work.
+Other upstream features have not been accepted on this profile. OSM, TREK Places, Frankfurter exchange rates and Transitous public transit are available through the existing server-side proxies; Google Places/Transit, weather, email, MCP, import/export, offline conflict reconciliation and load limits need separate verification. This preview is not a claim that all upstream features work.
 
 Sites currently exposes D1/R2 bindings but not this SQLite Durable Object binding. This is a general Cloudflare backend deployment; a Sites frontend deployment must be documented separately and must not be described as a Sites-native backend.
 
