@@ -52,6 +52,11 @@ test('original Nest application authenticates, validates, persists trips and pla
     await request(assignments+'/reorder',200,'PUT',{orderedIds:[b.id,a.id]},owner);
     const {data:ordered} = await request(assignments,200,'GET',undefined,owner);
     assert.deepEqual(ordered.assignments.map(x=>x.id),[b.id,a.id]);
+    await request('/api/admin/addons/collections',200,'PUT',{enabled:true},owner);
+    const imported = await request('/api/addons/collections/import',201,'POST',{file:{format:'trek.collection',version:1,name:'Imported Kyoto',color:'#6366f1',places:[{name:'Kiyomizu-dera',lat:34.9948,lng:135.785,labels:[]},{name:''}] }},owner);
+    assert.equal(imported.data.imported,1);
+    assert.equal(imported.data.skipped,1);
+    assert.equal(imported.data.collection.name,'Imported Kyoto');
     const {data:other} = await request('/api/auth/register',201,'POST',{username:'second_user',email:'second@example.invalid',password:'Second-test-password-1234'});
     assert.ok(other.token);
     await request(base,404,'GET',undefined,other.token);
