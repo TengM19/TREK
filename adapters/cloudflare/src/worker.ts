@@ -56,7 +56,14 @@ export class TrekDatabase extends DurableObject {
         const kind = request.headers.get('x-trek-cron-kind');
         if (kind === 'shadow-retention') this.application?.get(PlaceShadowRetentionJob, { strict: false })?.tick();
         if (kind === 'route-retention') this.application?.get(RouteUsageRetentionJob, { strict: false })?.tick();
-        return Response.json({ ok: true, idempotency, challenges, invites, reminders: kind === 'reminders', retention: kind === 'shadow-retention' || kind === 'route-retention' });
+        if (kind === 'version-check') {
+          // Load the version-check module only inside the scheduled request:
+          // its Node deployment installs a timer at module evaluation, which
+          // Cloudflare correctly rejects in Worker global scope.
+          const { VersionCheckJob } = await import('../../../server/src/nest/admin/version-check.job');
+          await this.application?.get(VersionCheckJob, { strict: false })?.tick();
+        }
+        return Response.json({ ok: true, idempotency, challenges, invites, reminders: kind === 'reminders', retention: kind === 'shadow-retention' || kind === 'route-retention', versionCheck: kind === 'version-check' });
       }
       if (!this.handler) throw new Error('TREK application failed to initialize');
       return this.handler.fetch(request, this.env, this.ctx);
@@ -137,7 +144,7 @@ export default {
       });
       return new Response(stream, {headers:{'content-type':'application/gzip','content-disposition':'attachment; filename="TREK-cloudflare-source.tar.gz"'}});
     }
-    if (pathname === '/api/runtime-capabilities') return Response.json({profile:'cloudflare-preview',attachments:false,plugins:false,scheduledTasks:true,scheduledTaskKinds:['cleanup','shadow-retention','route-retention','trip-reminders','todo-reminders'],realtime:{websocket:true,tripRooms:true},pdfImport:false,maps:{osm:true,trekPlaces:true,googlePlaces:false}});
+    if (pathname === '/api/runtime-capabilities') return Response.json({profile:'cloudflare-preview',attachments:false,plugins:false,scheduledTasks:true,scheduledTaskKinds:['cleanup','shadow-retention','route-retention','trip-reminders','todo-reminders','version-check'],realtime:{websocket:true,tripRooms:true},pdfImport:false,maps:{osm:true,trekPlaces:true,googlePlaces:false}});
     if ((pathname === '/ws' && request.headers.get('upgrade')?.toLowerCase() !== 'websocket') || pathname.startsWith('/api/backup') || pathname.startsWith('/api/admin/storage') || (request.headers.get('content-type') || '').includes('multipart/form-data')) {
       return Response.json({error:'This feature is not available in the initial Cloudflare preview.',code:'RUNTIME_UNSUPPORTED'}, {status:501});
     }
@@ -154,7 +161,7 @@ export default {
   },
   async scheduled(event: ScheduledEvent, env: { TREK: DurableObjectNamespace }) {
     const reminders = event.cron === '0 9 * * *';
-    const kind = reminders ? 'reminders' : event.cron === '40 3 * * *' ? 'shadow-retention' : event.cron === '45 3 * * *' ? 'route-retention' : undefined;
+    const kind = reminders ? 'reminders' : event.cron === '40 3 * * *' ? 'shadow-retention' : event.cron === '45 3 * * *' ? 'route-retention' : event.cron === '0 10 * * *' ? 'version-check' : undefined;
     const response = await env.TREK.get(env.TREK.idFromName('trek-instance')).fetch(
       new Request('https://internal/__cloudflare/cron', {
         method: 'POST',

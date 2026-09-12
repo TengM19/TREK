@@ -34,6 +34,11 @@ test('Cloudflare scheduled cleanup invokes the Durable Object task and is idempo
     });
     assert.equal(retention.status, 200);
     assert.equal((await retention.json()).retention, true);
+    const versionCheck = await stub.fetch('https://internal/__cloudflare/cron', {
+      method: 'POST', headers: { 'x-trek-cron': 'cloudflare-scheduler-v1', 'x-trek-cron-kind': 'version-check' },
+    });
+    assert.equal(versionCheck.status, 200);
+    assert.equal((await versionCheck.json()).versionCheck, true);
   } finally {
     await mf.dispose();
     await rm(storage, { recursive: true, force: true });
