@@ -1,4 +1,5 @@
 /** Same-origin Sites gateway to this fork owner's independent Cloudflare runtime. */
+// Keep the gateway source explicit so Sites local archives remain reproducible.
 const BACKEND = 'https://trek-cloudflare-demo.teng-m95.workers.dev';
 
 export async function handle(request, upstreamFetch = fetch) {
