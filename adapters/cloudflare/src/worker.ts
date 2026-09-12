@@ -11,6 +11,7 @@ import { cloudflareJoin, cloudflareLeave, cloudflareLeaveAll } from '../../../se
 
 export class TrekDatabase extends DurableObject {
   private readonly database = new DurableSqlite(this.ctx.storage);
+  private readonly socketUsers = new Map<any, { id: number }>();
   private handler?: ReturnType<typeof httpServerHandler>;
 
   constructor(ctx: DurableObjectState, env: unknown) {
@@ -62,7 +63,8 @@ export class TrekDatabase extends DurableObject {
     const accept = (this.ctx as any).acceptWebSocket;
     if (typeof accept === 'function') accept.call(this.ctx, socket); else socket.accept();
     socket.send(JSON.stringify({ type: 'welcome', socketId: socket.trekSocketId }));
-    socket.addEventListener('message', (event: MessageEvent) => {
+    this.socketUsers.set(socket, user);
+    const onMessage = (event: MessageEvent) => {
       try {
         const message = JSON.parse(String(event.data));
         const tripId = String(message?.tripId ?? ''); if (!tripId) return;
@@ -72,10 +74,26 @@ export class TrekDatabase extends DurableObject {
           cloudflareJoin(socket, tripId); socket.send(JSON.stringify({ type: 'joined', tripId: Number(tripId) }));
         } else if (message.type === 'leave') { cloudflareLeave(socket, tripId); socket.send(JSON.stringify({ type: 'left', tripId: Number(tripId) })); }
       } catch { /* ignore malformed frames */ }
-    });
-    socket.addEventListener('close', () => cloudflareLeaveAll(socket));
+    };
+    if (typeof accept !== 'function') socket.addEventListener('message', onMessage);
+    if (typeof accept !== 'function') socket.addEventListener('close', () => cloudflareLeaveAll(socket));
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
+
+  webSocketMessage(socket: any, message: string | ArrayBuffer): void {
+    const user = this.socketUsers.get(socket); if (!user) return;
+    const raw = typeof message === 'string' ? message : new TextDecoder().decode(message);
+    try {
+      const parsed = JSON.parse(raw); const tripId = String(parsed?.tripId ?? ''); if (!tripId) return;
+      if (parsed.type === 'join') {
+        const allowed = this.database.prepare('SELECT 1 FROM trips t WHERE t.id = ? AND (t.user_id = ? OR EXISTS (SELECT 1 FROM trip_members m WHERE m.trip_id = t.id AND m.user_id = ?))').get(tripId, user.id, user.id);
+        if (!allowed) { socket.send(JSON.stringify({ type: 'error', message: 'Access denied' })); return; }
+        cloudflareJoin(socket, tripId); socket.send(JSON.stringify({ type: 'joined', tripId: Number(tripId) }));
+      } else if (parsed.type === 'leave') { cloudflareLeave(socket, tripId); socket.send(JSON.stringify({ type: 'left', tripId: Number(tripId) })); }
+    } catch { /* ignore malformed frames */ }
+  }
+
+  webSocketClose(socket: any): void { this.socketUsers.delete(socket); cloudflareLeaveAll(socket); }
 }
 
 export default {
