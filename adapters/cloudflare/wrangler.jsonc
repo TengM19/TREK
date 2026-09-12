@@ -1,0 +1,49 @@
+{
+  "name": "trek-cloudflare-demo",
+  "main": "dist/worker.js",
+  "compatibility_date": "2026-07-01",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "workers_dev": true,
+  "assets": {
+    "directory": "../../client/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": [
+      "/api/*",
+      "/ws",
+      "/mcp",
+      "/oauth/*",
+      "/.well-known/*",
+      "/uploads/*",
+      "/cloudflare-source.tar.gz"
+    ]
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "TREK",
+        "class_name": "TrekDatabase"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "TrekDatabase"
+      ]
+    }
+  ],
+  "vars": {
+    "NODE_ENV": "production",
+    "TZ": "UTC",
+    "TREK_API_DOCS_ENABLED": "false",
+    "TREK_PLUGINS_ENABLED": "false",
+    "TREK_INITIAL_REGISTRATION": "false"
+  },
+  "observability": {
+    "enabled": true
+  }
+}

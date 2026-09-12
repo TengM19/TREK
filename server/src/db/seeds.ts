@@ -15,7 +15,7 @@ function isOidcOnlyConfigured(): boolean {
   return !!(oidc.issuer && oidc.clientId);
 }
 
-function seedAdminAccount(db: Database.Database): void {
+function seedAdminAccount(db: Database.Database, options: { logAdminPassword?: boolean } = {}): void {
   try {
     const env_admin_email = readEnv().adminBootstrap.email;
     const env_admin_pw = readEnv().adminBootstrap.password;
@@ -76,7 +76,7 @@ function seedAdminAccount(db: Database.Database): void {
     console.log('║  TREK — First Run: Admin Account Created     ║');
     console.log('╠══════════════════════════════════════════════╣');
     console.log(`║  Email:    ${email.padEnd(33)}║`);
-    console.log(`║  Password: ${password.padEnd(33)}║`);
+    console.log(`║  Password: ${(options.logAdminPassword === false ? "[configured securely]" : password).padEnd(33)}║`);
     console.log('╚══════════════════════════════════════════════╝');
     console.log('');
   } catch (err: unknown) {
@@ -169,8 +169,8 @@ function seedAddons(db: Database.Database): void {
   }
 }
 
-function runSeeds(db: Database.Database): void {
-  seedAdminAccount(db);
+function runSeeds(db: Database.Database, options: { logAdminPassword?: boolean } = {}): void {
+  seedAdminAccount(db, options);
   seedCategories(db);
   seedAddons(db);
 }

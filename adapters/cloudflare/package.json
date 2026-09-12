@@ -1,0 +1,16 @@
+{
+  "name": "@trek/cloudflare",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node build.mjs && node --test tests/*.test.mjs",
+    "deploy": "node build.mjs && wrangler deploy --no-bundle"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.1",
+    "miniflare": "^4.0.0",
+    "wrangler": "^4.0.0"
+  }
+}

@@ -1,12 +1,12 @@
 # Cloudflare / Sites feasibility research
 
-Status: proposal and upstream baseline verification only (2026-09-12). No Workers adaptation or deployment is implemented. This is an unofficial fork of liketrek/TREK.
+Status: experimental Workers adaptation implemented and locally accepted (2026-09-12); see `adapters/cloudflare/README.md` for scope, tests and limitations. This is an unofficial fork of liketrek/TREK.
 
 ## Scope and process
 
 Preserve the original frontend, shared contracts, authorization behavior, licenses, history, and Node/SQLite deployment. Explore general Cloudflare Workers compatibility first; keep Sites-specific deployment configuration separate. Submit only small, agreed changes against upstream dev.
 
-[Contribution discussion](https://discord.com/channels/1488298068427411591/1489744391080771768/threads/1548261815937400883) was posted in #github-pr on 2026-09-12 and is awaiting maintainer direction. No approval is implied.
+[Contribution discussion](https://discord.com/channels/1488298068427411591/1489744391080771768/threads/1548261815937400883) was posted in #github-pr on 2026-09-12. Downstream implementation proceeds independently for the fork owner; any upstream contribution remains separate. No maintainer approval is implied.
 
 ## Verified upstream baseline
 
