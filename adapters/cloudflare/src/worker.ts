@@ -9,6 +9,8 @@ import type Database from 'better-sqlite3';
 import { consumeEphemeralTokenWithMeta } from '../../../server/src/nest/auth/ephemeral-tokens';
 import { cloudflareJoin, cloudflareLeave, cloudflareLeaveAll } from '../../../server/src/cloudflare-realtime';
 import { ReminderJobsService } from '../../../server/src/nest/notifications/reminder-jobs.service';
+import { PlaceShadowRetentionJob } from '../../../server/src/nest/place-shadow/place-shadow.job';
+import { RouteUsageRetentionJob } from '../../../server/src/nest/route-usage/route-usage.job';
 
 export class TrekDatabase extends DurableObject {
   private readonly database = new DurableSqlite(this.ctx.storage);
@@ -51,7 +53,10 @@ export class TrekDatabase extends DurableObject {
           await reminder.tripTick();
           await reminder.todoTick();
         }
-        return Response.json({ ok: true, idempotency, challenges, invites, reminders: request.headers.get('x-trek-cron-kind') === 'reminders' });
+        const kind = request.headers.get('x-trek-cron-kind');
+        if (kind === 'shadow-retention') this.application?.get(PlaceShadowRetentionJob, { strict: false })?.tick();
+        if (kind === 'route-retention') this.application?.get(RouteUsageRetentionJob, { strict: false })?.tick();
+        return Response.json({ ok: true, idempotency, challenges, invites, reminders: kind === 'reminders', retention: kind === 'shadow-retention' || kind === 'route-retention' });
       }
       if (!this.handler) throw new Error('TREK application failed to initialize');
       return this.handler.fetch(request, this.env, this.ctx);
@@ -132,7 +137,7 @@ export default {
       });
       return new Response(stream, {headers:{'content-type':'application/gzip','content-disposition':'attachment; filename="TREK-cloudflare-source.tar.gz"'}});
     }
-    if (pathname === '/api/runtime-capabilities') return Response.json({profile:'cloudflare-preview',attachments:false,plugins:false,scheduledTasks:true,scheduledTaskKinds:['cleanup','trip-reminders','todo-reminders'],realtime:{websocket:true,tripRooms:true},pdfImport:false,maps:{osm:true,trekPlaces:true,googlePlaces:false}});
+    if (pathname === '/api/runtime-capabilities') return Response.json({profile:'cloudflare-preview',attachments:false,plugins:false,scheduledTasks:true,scheduledTaskKinds:['cleanup','shadow-retention','route-retention','trip-reminders','todo-reminders'],realtime:{websocket:true,tripRooms:true},pdfImport:false,maps:{osm:true,trekPlaces:true,googlePlaces:false}});
     if ((pathname === '/ws' && request.headers.get('upgrade')?.toLowerCase() !== 'websocket') || pathname.startsWith('/api/backup') || pathname.startsWith('/api/admin/storage') || (request.headers.get('content-type') || '').includes('multipart/form-data')) {
       return Response.json({error:'This feature is not available in the initial Cloudflare preview.',code:'RUNTIME_UNSUPPORTED'}, {status:501});
     }
@@ -149,13 +154,14 @@ export default {
   },
   async scheduled(event: ScheduledEvent, env: { TREK: DurableObjectNamespace }) {
     const reminders = event.cron === '0 9 * * *';
+    const kind = reminders ? 'reminders' : event.cron === '40 3 * * *' ? 'shadow-retention' : event.cron === '45 3 * * *' ? 'route-retention' : undefined;
     const response = await env.TREK.get(env.TREK.idFromName('trek-instance')).fetch(
       new Request('https://internal/__cloudflare/cron', {
         method: 'POST',
-        headers: { 'x-trek-cron': 'cloudflare-scheduler-v1', ...(reminders ? { 'x-trek-cron-kind': 'reminders' } : {}) },
+        headers: { 'x-trek-cron': 'cloudflare-scheduler-v1', ...(kind ? { 'x-trek-cron-kind': kind } : {}) },
       }),
     );
     if (!response.ok) throw new Error(`Cloudflare scheduled cleanup failed (${response.status})`);
-    console.log(`[cloudflare-cron] ${reminders ? 'reminders' : 'cleanup'}`, await response.text());
+    console.log(`[cloudflare-cron] ${kind || 'cleanup'}`, await response.text());
   },
 };
