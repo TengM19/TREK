@@ -27,7 +27,7 @@ test('original Nest application authenticates, validates, persists trips and pla
     await request('/ws',501);
     const {data:capabilities} = await request('/api/runtime-capabilities',200);
     assert.equal(capabilities.attachments,false);
-    assert.equal(capabilities.scheduledTasks,false);
+    assert.equal(capabilities.scheduledTasks,true);
     const {data:login,response} = await request('/api/auth/login',200,'POST',{email:'test@example.invalid',password:'test-only-password-0000000000000000'});
     const owner = login.token;
     assert.ok(owner);

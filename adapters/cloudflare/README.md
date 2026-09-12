@@ -21,7 +21,7 @@ Tests run against workerd through Miniflare, not mocked database/auth services:
 
 ## Preview limitations
 
-Attachments, PDF import, plugin execution, realtime collaboration and scheduled jobs are unavailable. Upload writes fail explicitly; multipart uploads, backup/restore and storage reconfiguration return 501. Plugins are disabled with `TREK_PLUGINS_ENABLED=false`; child-process isolation is not replaced with in-process execution. Cron registration is disabled rather than relying on nondurable timers. Rotating log files are replaced by console logging. Unsupported admin secret rotation fails with an instruction to rotate the Cloudflare secret.
+Attachments, PDF import, plugin execution and realtime collaboration are unavailable. Upload writes fail explicitly; multipart uploads, backup/restore and storage reconfiguration return 501. Plugins are disabled with `TREK_PLUGINS_ENABLED=false`; child-process isolation is not replaced with in-process execution. Cloudflare Cron now runs the durable cleanup task (expired idempotency keys, WebAuthn challenges and registration invites); the remaining upstream jobs still need individual migration. Rotating log files are replaced by console logging. Unsupported admin secret rotation fails with an instruction to rotate the Cloudflare secret.
 
 Other upstream features have not been accepted on this profile. In particular, email, third-party integrations, maps requiring API keys, MCP, import/export, offline conflict reconciliation and load limits need separate verification. This preview is not a claim that all upstream features work.
 

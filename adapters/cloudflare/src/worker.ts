@@ -31,6 +31,14 @@ export class TrekDatabase extends DurableObject {
 
   async fetch(request: Request): Promise<Response> {
     return databaseContext.run(this.database, async () => {
+      const internalCron = request.headers.get('x-trek-cron') === 'cloudflare-scheduler-v1';
+      if (new URL(request.url).pathname === '/__cloudflare/cron' && request.method === 'POST' && internalCron) {
+        const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+        const idempotency = this.database.prepare('DELETE FROM idempotency_keys WHERE created_at < ?').run(cutoff).changes;
+        const challenges = this.database.prepare('DELETE FROM webauthn_challenges WHERE expires_at < ?').run(Date.now()).changes;
+        const invites = this.database.prepare("DELETE FROM invite_tokens WHERE expires_at IS NOT NULL AND expires_at < datetime('now')").run().changes;
+        return Response.json({ ok: true, idempotency, challenges, invites });
+      }
       if (!this.handler) throw new Error('TREK application failed to initialize');
       return this.handler.fetch(request, this.env, this.ctx);
     });
@@ -63,7 +71,7 @@ export default {
       });
       return new Response(stream, {headers:{'content-type':'application/gzip','content-disposition':'attachment; filename="TREK-cloudflare-source.tar.gz"'}});
     }
-    if (pathname === '/api/runtime-capabilities') return Response.json({profile:'cloudflare-preview',attachments:false,plugins:false,scheduledTasks:false,realtime:false,pdfImport:false});
+    if (pathname === '/api/runtime-capabilities') return Response.json({profile:'cloudflare-preview',attachments:false,plugins:false,scheduledTasks:true,realtime:false,pdfImport:false});
     if (pathname === '/ws' || pathname.startsWith('/api/backup') || pathname.startsWith('/api/admin/storage') || (request.headers.get('content-type') || '').includes('multipart/form-data')) {
       return Response.json({error:'This feature is not available in the initial Cloudflare preview.',code:'RUNTIME_UNSUPPORTED'}, {status:501});
     }
@@ -77,5 +85,15 @@ export default {
       return env.TREK.get(env.TREK.idFromName('trek-instance')).fetch(new Request(request, {headers}));
     }
     return env.ASSETS.fetch(request);
+  },
+  async scheduled(_event: ScheduledEvent, env: { TREK: DurableObjectNamespace }) {
+    const response = await env.TREK.get(env.TREK.idFromName('trek-instance')).fetch(
+      new Request('https://internal/__cloudflare/cron', {
+        method: 'POST',
+        headers: { 'x-trek-cron': 'cloudflare-scheduler-v1' },
+      }),
+    );
+    if (!response.ok) throw new Error(`Cloudflare scheduled cleanup failed (${response.status})`);
+    console.log('[cloudflare-cron] cleanup', await response.text());
   },
 };
