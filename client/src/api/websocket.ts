@@ -100,7 +100,6 @@ function scheduleReconnect(): void {
 }
 
 async function connectInternal(_isReconnect = false): Promise<void> {
-  if (import.meta.env.VITE_RUNTIME_PREVIEW === 'cloudflare') return
   if (connecting) return
   if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
     return
