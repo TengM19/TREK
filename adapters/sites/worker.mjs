@@ -11,7 +11,7 @@ export async function handle(request, upstreamFetch = fetch) {
   }
   const target = new URL(incoming.pathname + incoming.search, BACKEND);
   const headers = new Headers();
-  for (const key of ['accept', 'content-type', 'if-none-match', 'if-modified-since', 'range', 'x-socket-id', 'idempotency-key']) {
+  for (const key of ['accept', 'content-type', 'if-none-match', 'if-modified-since', 'range', 'x-socket-id', 'idempotency-key', 'upgrade', 'sec-websocket-key', 'sec-websocket-version', 'sec-websocket-protocol']) {
     const value = request.headers.get(key);
     if (value) headers.set(key, value);
   }
@@ -19,6 +19,7 @@ export async function handle(request, upstreamFetch = fetch) {
   const trekSession = (request.headers.get('cookie') || '').split(';').map(value => value.trim()).find(value => value.startsWith('trek_session='));
   if (trekSession) headers.set('cookie', trekSession);
   if (origin) headers.set('origin', BACKEND);
+  if (incoming.pathname === '/ws') headers.set('upgrade', 'websocket');
   const response = await upstreamFetch(target, {
     method:request.method, headers, redirect:'manual',
     ...(!['GET','HEAD'].includes(request.method) ? {body:request.body,duplex:'half'} : {}),

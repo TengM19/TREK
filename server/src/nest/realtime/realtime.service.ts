@@ -6,6 +6,7 @@ import type {
   TrekWsUserEventName,
 } from '@trek/shared';
 import { broadcast, broadcastToUser, getOnlineUserIds } from '../../websocket';
+import { cloudflareBroadcast } from '../../cloudflare-realtime';
 
 /**
  * Injectable facade over the websocket module singleton (roadmap Phase 0 item 3).
@@ -68,6 +69,8 @@ export class RealtimeService {
     ]
   ): void {
     broadcast(...args);
+    const [tripId, eventType, payload, excludeSid] = args;
+    cloudflareBroadcast(tripId, { type: eventType, ...payload }, excludeSid);
   }
 
   /**

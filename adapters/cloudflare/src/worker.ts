@@ -6,6 +6,8 @@ import { createTables } from '../../../server/src/db/schema';
 import { runMigrations } from '../../../server/src/db/migrations';
 import { runSeeds } from '../../../server/src/db/seeds';
 import type Database from 'better-sqlite3';
+import { consumeEphemeralTokenWithMeta } from '../../../server/src/nest/auth/ephemeral-tokens';
+import { cloudflareJoin, cloudflareLeave, cloudflareLeaveAll } from '../../../server/src/cloudflare-realtime';
 
 export class TrekDatabase extends DurableObject {
   private readonly database = new DurableSqlite(this.ctx.storage);
@@ -31,6 +33,7 @@ export class TrekDatabase extends DurableObject {
 
   async fetch(request: Request): Promise<Response> {
     return databaseContext.run(this.database, async () => {
+      if (request.headers.get('upgrade')?.toLowerCase() === 'websocket') return this.websocket(request);
       const internalCron = request.headers.get('x-trek-cron') === 'cloudflare-scheduler-v1';
       if (new URL(request.url).pathname === '/__cloudflare/cron' && request.method === 'POST' && internalCron) {
         const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
@@ -42,6 +45,35 @@ export class TrekDatabase extends DurableObject {
       if (!this.handler) throw new Error('TREK application failed to initialize');
       return this.handler.fetch(request, this.env, this.ctx);
     });
+  }
+
+  private websocket(request: Request): Response {
+    const token = new URL(request.url).searchParams.get('token');
+    if (!token) return new Response('Authentication required', { status: 401 });
+    const consumed = consumeEphemeralTokenWithMeta(token, 'ws');
+    if (!consumed) return new Response('Invalid or expired token', { status: 401 });
+    const user = this.database.prepare('SELECT id, password_version FROM users WHERE id = ?').get(consumed.userId) as { id: number; password_version?: number } | undefined;
+    if (!user || Number(user.password_version ?? 0) !== Number(consumed.pv ?? 0)) return new Response('Invalid or expired token', { status: 401 });
+    const Pair = (globalThis as any).WebSocketPair;
+    if (!Pair) return new Response('WebSocket unavailable', { status: 501 });
+    const pair = new Pair();
+    const socket = pair[1] as any;
+    socket.trekSocketId = Math.floor(Math.random() * 2147483647);
+    socket.accept();
+    socket.send(JSON.stringify({ type: 'welcome', socketId: socket.trekSocketId }));
+    socket.addEventListener('message', (event: MessageEvent) => {
+      try {
+        const message = JSON.parse(String(event.data));
+        const tripId = String(message?.tripId ?? ''); if (!tripId) return;
+        if (message.type === 'join') {
+          const allowed = this.database.prepare('SELECT 1 FROM trips t WHERE t.id = ? AND (t.user_id = ? OR EXISTS (SELECT 1 FROM trip_members m WHERE m.trip_id = t.id AND m.user_id = ?))').get(tripId, user.id, user.id);
+          if (!allowed) { socket.send(JSON.stringify({ type: 'error', message: 'Access denied' })); return; }
+          cloudflareJoin(socket, tripId); socket.send(JSON.stringify({ type: 'joined', tripId: Number(tripId) }));
+        } else if (message.type === 'leave') { cloudflareLeave(socket, tripId); socket.send(JSON.stringify({ type: 'left', tripId: Number(tripId) })); }
+      } catch { /* ignore malformed frames */ }
+    });
+    socket.addEventListener('close', () => cloudflareLeaveAll(socket));
+    return new Response(null, { status: 101, webSocket: pair[0] });
   }
 }
 
@@ -71,8 +103,8 @@ export default {
       });
       return new Response(stream, {headers:{'content-type':'application/gzip','content-disposition':'attachment; filename="TREK-cloudflare-source.tar.gz"'}});
     }
-    if (pathname === '/api/runtime-capabilities') return Response.json({profile:'cloudflare-preview',attachments:false,plugins:false,scheduledTasks:true,realtime:false,pdfImport:false,maps:{osm:true,trekPlaces:true,googlePlaces:false}});
-    if (pathname === '/ws' || pathname.startsWith('/api/backup') || pathname.startsWith('/api/admin/storage') || (request.headers.get('content-type') || '').includes('multipart/form-data')) {
+    if (pathname === '/api/runtime-capabilities') return Response.json({profile:'cloudflare-preview',attachments:false,plugins:false,scheduledTasks:true,realtime:{websocket:true,tripRooms:true},pdfImport:false,maps:{osm:true,trekPlaces:true,googlePlaces:false}});
+    if ((pathname === '/ws' && request.headers.get('upgrade')?.toLowerCase() !== 'websocket') || pathname.startsWith('/api/backup') || pathname.startsWith('/api/admin/storage') || (request.headers.get('content-type') || '').includes('multipart/form-data')) {
       return Response.json({error:'This feature is not available in the initial Cloudflare preview.',code:'RUNTIME_UNSUPPORTED'}, {status:501});
     }
     if (pathname.startsWith('/api/') || pathname === '/mcp' || pathname.startsWith('/oauth/') || pathname.startsWith('/.well-known/') || pathname === '/ws' || pathname.startsWith('/uploads/')) {

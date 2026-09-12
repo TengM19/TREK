@@ -25,9 +25,12 @@ test('original Nest application authenticates, validates, persists trips and pla
     await request('/api/trips',401);
     await request('/api/backup',501);
     await request('/ws',501);
+    const wsRejected = await mf.dispatchFetch('https://test/ws', { headers: { upgrade: 'websocket' } });
+    assert.equal(wsRejected.status, 401);
     const {data:capabilities} = await request('/api/runtime-capabilities',200);
     assert.equal(capabilities.attachments,false);
     assert.equal(capabilities.scheduledTasks,true);
+    assert.deepEqual(capabilities.realtime,{websocket:true,tripRooms:true});
     assert.deepEqual(capabilities.maps,{osm:true,trekPlaces:true,googlePlaces:false});
     const {data:login,response} = await request('/api/auth/login',200,'POST',{email:'test@example.invalid',password:'test-only-password-0000000000000000'});
     const owner = login.token;
